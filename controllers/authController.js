@@ -24,6 +24,8 @@ const generateRefreshToken = (user) => {
   });
 };
 
+
+
 // User Registration
 const handleArtisanRegisteration = async (req, res) => {
     try {
