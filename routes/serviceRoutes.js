@@ -6,7 +6,7 @@ const { handleAddToFavourites, handleGetFavourites, handleGetServices, handleCre
 
 
 
-router.get('/services', protect, handleGetServices);
+router.get('/services', handleGetServices);
 router.post('/service', protect, handleCreateService);
 router.get('/service/:id', protect, handleGetServiceById);
 router.post('/service/:id/apply', protect, handleApplyForService);
