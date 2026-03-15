@@ -4,7 +4,6 @@ const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { sendOTPEmail, sendWelcomeEmail, sendForgotPasswordEmail } = require('../utils/sendEmail');
-const RentalRequest = require('../models/rentalRequestModel');
 const History = require('../models/historyModel');
 const Job = require('../models/jobModel');
 const Service = require('../models/serviceModel');

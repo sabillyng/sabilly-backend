@@ -2,22 +2,23 @@
 const express = require('express');
 const router = express.Router();
 const { protect } = require('../middleware/authMiddleware');
-const { handleAddToFavourites, handleGetFavourites, handleGetServices, handleCreateService, handleGetServiceById, handleApplyForService, handleCompleteService, handleDeleteService, handleRateProvider, handleGetProviderProfile } = require('../controllers/serviceController');
+const { handleAddToFavourites, handleGetFavourites, handleGetServices, handleCreateService, handleGetServiceById, handleApplyForService, handleCompleteService, handleDeleteService, handleRateProvider, handleGetProviderProfile, handleGetProviders } = require('../controllers/serviceController');
 
 
 
-router.get('/services', handleGetServices);
-router.post('/service', protect, handleCreateService);
-router.get('/service/:id', protect, handleGetServiceById);
-router.post('/service/:id/apply', protect, handleApplyForService);
-router.post('/service/:id/complete', protect, handleCompleteService);
-router.delete('/service/:id/delete', protect, handleDeleteService);
+router.get('/all-services', handleGetServices);
+router.post('/create-service', protect, handleCreateService);
+router.get('/get-service/:id', protect, handleGetServiceById);
+router.post('/apply/:id', protect, handleApplyForService);
+router.post('/complete/:id', protect, handleCompleteService);
+router.delete('/delete/:id', protect, handleDeleteService);
 
 // rate provider routes
 router.post('/service/:id/rate', protect, handleRateProvider);
 
-// get provide profile and reviews
-router.get('/provider/:id', protect, handleGetProviderProfile);
+// get provider profile and reviews
+router.get('/provider/:id', handleGetProviderProfile);
+router.get('/providers', handleGetProviders);
 
 
 module.exports = router;

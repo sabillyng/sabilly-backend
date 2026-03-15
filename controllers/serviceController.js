@@ -369,6 +369,24 @@ const handleGetProviderProfile = async (req, res) => {
     }
 };
 
+
+// get all providers for public view
+const handleGetProviders = async (req, res) => {
+    try {
+        const providers = await User.find({ role: { $in: ['artisan', 'business_owner'] } }).select('-password').populate('services', 'title category location');
+        res.status(200).json({
+            success: true,
+            data: providers
+        });
+    } catch (error) {
+        console.error('Get providers error:', error);
+        res.status(500).json({
+            success: false,
+            message: "An error occurred while fetching providers"
+        });
+    }
+};
+
 // add provider to favourites
 const handleAddToFavourites = async (req, res) => {
     try {
@@ -458,5 +476,6 @@ module.exports = {
     handleGetProviderProfile,
     handleAddToFavourites,
     handleRemoveFromFavourites,
-    handleGetFavourites
+    handleGetFavourites,
+    handleGetProviders
 };

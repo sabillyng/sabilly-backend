@@ -60,7 +60,7 @@ app.get('/api', (req, res) => {
 
 app.use('/api/v1/auth', limiter, authRoute);
 app.use('/api/v1/admin', adminRoutes);
-app.use('/api/v1/services', serviceRoutes);
+app.use('/api/v1/service', serviceRoutes);
 
 // === Start Server after DB Connect ===
 const PORT = process.env.PORT || 5000;
