@@ -25,6 +25,7 @@ const allowedOrigins = [
   "https://sabilly.com",
   "https://sabillyng.com",
   'http://localhost:5173',
+  'http://localhost:3000',
 ];
 // === Middleware ===
 app.use(helmet());

@@ -21,4 +21,8 @@ router.get('/provider/:id', handleGetProviderProfile);
 router.get('/providers', handleGetProviders);
 
 
+router.post('/favourites/:id', protect, handleAddToFavourites);
+router.get('/favourites', protect, handleGetFavourites);
+
+
 module.exports = router;
