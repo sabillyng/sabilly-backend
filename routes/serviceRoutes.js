@@ -2,7 +2,7 @@
 const express = require('express');
 const router = express.Router();
 const { protect } = require('../middleware/authMiddleware');
-const { handleAddToFavourites, handleGetFavourites, handleGetServices, handleCreateService, handleGetServiceById, handleApplyForService, handleCompleteService, handleDeleteService, handleRateProvider, handleGetProviderProfile, handleGetProviders, handleSearchServices, handleGetProviderServices, handleUpdateService, handleToggleServiceStatus } = require('../controllers/serviceController');
+const { handleAddToFavourites, handleGetFavourites, handleGetServices, handleCreateService, handleGetServiceById, handleApplyForService, handleCompleteService, handleDeleteService, handleRateProvider, handleGetProviderProfile, handleGetProviders, handleSearchServices, handleGetProviderServices, handleUpdateService, handleToggleServiceStatus, handleGetTopRatedProviders } = require('../controllers/serviceController');
 const { authorizeRoles } = require('../middleware/roleMiddleware');
 const { uploadImages } = require('../utils/multer');
 
@@ -40,8 +40,9 @@ router.put('/update-service/:id', protect, (req, res, next) => {
 );
 // Toggle service status (activate/deactivate)
 router.patch('/:id/toggle', protect, handleToggleServiceStatus);
+router.get('/top-rated-providers', handleGetTopRatedProviders)
 
-router.post('/create-service', protect, handleCreateService);
+
 router.get('/get-service/:id', protect, handleGetServiceById);
 router.post('/apply/:id', protect, handleApplyForService);
 router.post('/complete/:id', protect, handleCompleteService);
@@ -49,6 +50,7 @@ router.delete('/delete/:id', protect, handleDeleteService);
 
 
 router.get('/search', handleSearchServices);
+router.get('/search-skill', handleGetTopRatedProviders);
 router.get('/provider/:providerId', handleGetProviderServices);
 
 // rate provider routes

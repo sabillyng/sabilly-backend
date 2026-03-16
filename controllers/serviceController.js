@@ -617,45 +617,254 @@ const handleRateProvider = async (req, res) => {
 };
 
 
-// get provider profile with reviews and average rating
-const handleGetProviderProfile = async (req, res) => {
-    try {
-        const { id } = req.params; // provider ID
-        const provider = await User.findById(id).select('-password').populate('services', 'title category location');
-        if (!provider || provider.role !== 'artisan' && provider.role !== 'business_owner') {
-            return res.status(404).json({
-                success: false,
-                message: "Provider not found"
-            });
-        }
 
-        res.status(200).json({
-            success: true,
-            data: provider
-        });
-    } catch (error) {
-        console.error('Get provider profile error:', error);
-        res.status(500).json({
-            success: false,
-            message: "An error occurred while fetching the provider profile"
-        });
-    }
-};
-
-
-// get all providers for public view
+// Get all providers for public view
 const handleGetProviders = async (req, res) => {
     try {
-        const providers = await User.find({ role: { $in: ['artisan', 'business_owner'] } }).select('-password').populate('services', 'title category location');
+        const { page = 1, limit = 20, search, category, minRating } = req.query;
+        
+        // Build filter
+        const filter = { 
+            role: { $in: ['artisan', 'business_owner'] },
+            isActive: true 
+        };
+
+        // Search by name or bio
+        if (search) {
+            filter.$or = [
+                { fullName: { $regex: search, $options: 'i' } },
+                { bio: { $regex: search, $options: 'i' } },
+                { skills: { $in: [new RegExp(search, 'i')] } }
+            ];
+        }
+
+        // Filter by minimum rating
+        if (minRating) {
+            filter.rating = { $gte: parseFloat(minRating) };
+        }
+
+        // Get providers with pagination
+        const providers = await User.find(filter)
+            .select('-password -otp -otpExpires -resetPasswordToken -resetPasswordExpire')
+            .skip((parseInt(page) - 1) * parseInt(limit))
+            .limit(parseInt(limit))
+            .sort({ rating: -1, createdAt: -1 });
+
+        // Get service counts for each provider
+        const providersWithStats = await Promise.all(
+            providers.map(async (provider) => {
+                const providerObj = provider.toObject();
+                
+                // Count active services for this provider
+                const serviceCount = await Service.countDocuments({ 
+                    provider: provider._id,
+                    isActive: true 
+                });
+
+                // Get recent services (optional)
+                const recentServices = await Service.find({ 
+                    provider: provider._id,
+                    isActive: true 
+                })
+                .select('title category location priceRange images')
+                .limit(3)
+                .sort({ createdAt: -1 });
+
+                return {
+                    ...providerObj,
+                    stats: {
+                        totalServices: serviceCount,
+                        activeServices: serviceCount
+                    },
+                    recentServices // Add recent services if needed
+                };
+            })
+        );
+
+        // Get total count for pagination
+        const total = await User.countDocuments(filter);
+
         res.status(200).json({
             success: true,
-            data: providers
+            data: providersWithStats,
+            pagination: {
+                total,
+                page: parseInt(page),
+                limit: parseInt(limit),
+                totalPages: Math.ceil(total / parseInt(limit))
+            }
         });
     } catch (error) {
         console.error('Get providers error:', error);
         res.status(500).json({
             success: false,
             message: "An error occurred while fetching providers"
+        });
+    }
+};
+
+// Get single provider by ID with their services
+const handleGetProviderById = async (req, res) => {
+    try {
+        const { id } = req.params;
+        
+        const provider = await User.findById(id)
+            .select('-password -otp -otpExpires -resetPasswordToken -resetPasswordExpire');
+
+        if (!provider || !['artisan', 'business_owner'].includes(provider.role)) {
+            return res.status(404).json({
+                success: false,
+                message: "Provider not found"
+            });
+        }
+
+        // Get all active services for this provider
+        const services = await Service.find({ 
+            provider: id,
+            isActive: true 
+        })
+        .select('title description category location priceRange images rating totalReviews createdAt')
+        .sort({ createdAt: -1 });
+
+        // Get provider stats
+        const totalServices = services.length;
+        const averageRating = provider.rating || 0;
+        const totalReviews = provider.totalReviews || 0;
+
+        // Get reviews (if you have a reviews model)
+        // This would need to be implemented based on your review schema
+
+        res.status(200).json({
+            success: true,
+            data: {
+                provider: provider.toObject(),
+                services,
+                stats: {
+                    totalServices,
+                    averageRating,
+                    totalReviews,
+                    memberSince: provider.createdAt
+                }
+            }
+        });
+    } catch (error) {
+        console.error('Get provider by ID error:', error);
+        res.status(500).json({
+            success: false,
+            message: "An error occurred while fetching provider details"
+        });
+    }
+};
+
+// Get provider profile with reviews and average rating (alias for backward compatibility)
+const handleGetProviderProfile = async (req, res) => {
+    return handleGetProviderById(req, res);
+};
+
+// Get top rated providers
+const handleGetTopRatedProviders = async (req, res) => {
+    try {
+        const { limit = 10 } = req.query;
+
+        const providers = await User.find({ 
+            role: { $in: ['artisan', 'business_owner'] },
+            isActive: true,
+            rating: { $gte: 4.0 } // Only providers with rating 4.0 and above
+        })
+        .select('-password -otp -otpExpires -resetPasswordToken -resetPasswordExpire')
+        .sort({ rating: -1, totalReviews: -1 })
+        .limit(parseInt(limit));
+
+        // Get service counts
+        const providersWithStats = await Promise.all(
+            providers.map(async (provider) => {
+                const providerObj = provider.toObject();
+                const serviceCount = await Service.countDocuments({ 
+                    provider: provider._id,
+                    isActive: true 
+                });
+
+                return {
+                    ...providerObj,
+                    stats: {
+                        totalServices: serviceCount
+                    }
+                };
+            })
+        );
+
+        res.status(200).json({
+            success: true,
+            data: providersWithStats
+        });
+    } catch (error) {
+        console.error('Get top rated providers error:', error);
+        res.status(500).json({
+            success: false,
+            message: "An error occurred while fetching top rated providers"
+        });
+    }
+};
+
+// Search providers by skills/category
+const handleSearchProvidersBySkill = async (req, res) => {
+    try {
+        const { skill, page = 1, limit = 20 } = req.query;
+
+        if (!skill) {
+            return res.status(400).json({
+                success: false,
+                message: "Skill parameter is required"
+            });
+        }
+
+        const filter = { 
+            role: { $in: ['artisan', 'business_owner'] },
+            isActive: true,
+            skills: { $in: [new RegExp(skill, 'i')] }
+        };
+
+        const providers = await User.find(filter)
+            .select('-password -otp -otpExpires -resetPasswordToken -resetPasswordExpire')
+            .skip((parseInt(page) - 1) * parseInt(limit))
+            .limit(parseInt(limit))
+            .sort({ rating: -1 });
+
+        const total = await User.countDocuments(filter);
+
+        // Get service counts
+        const providersWithStats = await Promise.all(
+            providers.map(async (provider) => {
+                const providerObj = provider.toObject();
+                const serviceCount = await Service.countDocuments({ 
+                    provider: provider._id,
+                    isActive: true 
+                });
+
+                return {
+                    ...providerObj,
+                    stats: {
+                        totalServices: serviceCount
+                    }
+                };
+            })
+        );
+
+        res.status(200).json({
+            success: true,
+            data: providersWithStats,
+            pagination: {
+                total,
+                page: parseInt(page),
+                limit: parseInt(limit),
+                totalPages: Math.ceil(total / parseInt(limit))
+            }
+        });
+    } catch (error) {
+        console.error('Search providers by skill error:', error);
+        res.status(500).json({
+            success: false,
+            message: "An error occurred while searching providers"
         });
     }
 };
@@ -754,5 +963,8 @@ module.exports = {
     handleSearchServices,
     handleGetProviderServices,
     handleToggleServiceStatus,
-    handleUpdateService
+    handleUpdateService,
+    handleGetTopRatedProviders,
+    handleSearchProvidersBySkill
+
 };
