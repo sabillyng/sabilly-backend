@@ -6,23 +6,26 @@ const cloudinary = require('../utils/cloudinary');
 const Job = require('../models/jobModel');
 
 
-
 const handleCreateService = async (req, res) => {
     try {
+        // For multipart/form-data, fields are in req.body
         const { title, description, priceRange, category, location } = req.body;
         const providerId = req.user._id;
+
+        // Validate required fields
+        if (!title || !category) {
+            return res.status(400).json({
+                success: false,
+                message: "Title and category are required fields"
+            });
+        }
+
+        // Process images - multer puts files in req.files (array format with uploadImages)
+        const uploadedImages = [];
         
-
-        let media = {
-            images: [],
-        };
-
-        // Process images
-        if (req.files && req.files.images) {
-            const imagesArray = Array.isArray(req.files.images) ? req.files.images : [req.files.images];
-            
-            for (let file of imagesArray) {
-                // Validate image file size
+        if (req.files && req.files.length > 0) {
+            for (let file of req.files) {
+                // Validate image file size (already handled by multer, but double-check)
                 if (file.size > 10 * 1024 * 1024) {
                     return res.status(400).json({ 
                         success: false, 
@@ -47,7 +50,7 @@ const handleCreateService = async (req, res) => {
                         uploadStream.end(file.buffer);
                     });
 
-                    media.images.push({
+                    uploadedImages.push({
                         url: uploadRes.secure_url,
                         public_id: uploadRes.public_id,
                         originalName: file.originalname,
@@ -65,22 +68,33 @@ const handleCreateService = async (req, res) => {
         }
 
         // Validate that at least one image is provided
-        if (media.images.length === 0) {
+        if (uploadedImages.length === 0) {
             return res.status(400).json({ 
                 success: false, 
-                message: "At least one image is required for property listing" 
+                message: "At least one image is required for service listing" 
             });
         }
 
+        // Parse priceRange if it's a string
+        let parsedPriceRange = priceRange;
+        if (typeof priceRange === 'string') {
+            try {
+                parsedPriceRange = JSON.parse(priceRange);
+            } catch (e) {
+                // If it's not valid JSON, keep it as a simple object
+                parsedPriceRange = { string: priceRange };
+            }
+        }
 
         const newService = new Service({
             title,
             description,
-            priceRange,
+            priceRange: parsedPriceRange,
             category,
             location,
-            images: media.images.map(img => img.url),
-            provider: providerId
+            images: uploadedImages.map(img => img.url),
+            provider: providerId,
+            isActive: true
         });
 
         await newService.save();
@@ -93,6 +107,9 @@ const handleCreateService = async (req, res) => {
             details: `Service "${title}" created with ID ${newService._id}`
         });
 
+        // Populate provider info before sending response
+        await newService.populate('provider', 'fullName email phone avatar role');
+
         res.status(201).json({
             success: true,
             message: "Service created successfully",
@@ -102,26 +119,44 @@ const handleCreateService = async (req, res) => {
         console.error('Create service error:', error);
         res.status(500).json({
             success: false,
-            message: "An error occurred while creating the service"
+            message: error.message || "An error occurred while creating the service"
         });
     }
 };
 
-
-
-// get all services with pagination and filtering
+// Get all services with pagination and filtering
 const handleGetServices = async (req, res) => {
     try {
-        const { page = 1, limit = 10, category, location } = req.query;
-        const filter = {}; 
+        const { page = 1, limit = 10, category, location, provider, search, minPrice, maxPrice } = req.query;
+        const filter = { isActive: true }; 
 
         if (category) filter.category = category;
-        if (location) filter.location = location;
+        if (location) filter.location = { $regex: location, $options: 'i' };
+        if (provider) filter.provider = provider;
+        
+        if (search) {
+            filter.$or = [
+                { title: { $regex: search, $options: 'i' } },
+                { description: { $regex: search, $options: 'i' } },
+                { category: { $regex: search, $options: 'i' } }
+            ];
+        }
+
+        // Price range filtering (if implemented)
+        if (minPrice || maxPrice) {
+            // This assumes you have a numeric price field
+            // You may need to adjust based on your priceRange structure
+            filter.price = {};
+            if (minPrice) filter.price.$gte = parseInt(minPrice);
+            if (maxPrice) filter.price.$lte = parseInt(maxPrice);
+        }
 
         const services = await Service.find(filter)
-            .skip((page - 1) * limit)
+            .skip((parseInt(page) - 1) * parseInt(limit))
             .limit(parseInt(limit))
-            .populate('provider', 'fullName email');
+            .populate('provider', 'fullName email phone avatar role kycVerified rating totalReviews skills location')
+            .sort({ createdAt: -1 });
+
         const total = await Service.countDocuments(filter);
 
         res.status(200).json({
@@ -131,7 +166,7 @@ const handleGetServices = async (req, res) => {
                 total,
                 page: parseInt(page),
                 limit: parseInt(limit),
-                totalPages: Math.ceil(total / limit)
+                totalPages: Math.ceil(total / parseInt(limit))
             }
         });
     } catch (error) {
@@ -143,12 +178,13 @@ const handleGetServices = async (req, res) => {
     }
 };
 
-
-// get single service by id
+// Get single service by id
 const handleGetServiceById = async (req, res) => {
     try {
         const { id } = req.params;
-        const service = await Service.findById(id).populate('provider', 'fullName email');
+        const service = await Service.findById(id)
+            .populate('provider', 'fullName email phone avatar role kycVerified rating totalReviews skills bio location createdAt');
+
         if (!service) {
             return res.status(404).json({
                 success: false,
@@ -168,6 +204,275 @@ const handleGetServiceById = async (req, res) => {
         });
     }
 };
+
+// Update service
+const handleUpdateService = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { title, description, priceRange, category, location } = req.body;
+        
+        const service = await Service.findById(id);
+        
+        if (!service) {
+            return res.status(404).json({
+                success: false,
+                message: "Service not found"
+            });
+        }
+
+        // Check if user is the provider
+        if (service.provider.toString() !== req.user._id.toString()) {
+            return res.status(403).json({
+                success: false,
+                message: "You are not authorized to update this service"
+            });
+        }
+
+        // Update fields
+        if (title) service.title = title;
+        if (description) service.description = description;
+        if (priceRange) {
+            if (typeof priceRange === 'string') {
+                try {
+                    service.priceRange = JSON.parse(priceRange);
+                } catch (e) {
+                    service.priceRange = { string: priceRange };
+                }
+            } else {
+                service.priceRange = priceRange;
+            }
+        }
+        if (category) service.category = category;
+        if (location) service.location = location;
+        
+        service.updatedAt = Date.now();
+
+        // Handle new images if uploaded
+        if (req.files && req.files.length > 0) {
+            const uploadedImages = [];
+            
+            for (let file of req.files) {
+                if (file.size > 10 * 1024 * 1024) {
+                    return res.status(400).json({ 
+                        success: false, 
+                        message: `Image ${file.originalname} is too large. Maximum 10MB per image.` 
+                    });
+                }
+
+                try {
+                    const uploadRes = await new Promise((resolve, reject) => {
+                        const uploadStream = cloudinary.uploader.upload_stream(
+                            { folder: 'services/images' },
+                            (error, result) => {
+                                if (error) reject(error);
+                                else resolve(result);
+                            }
+                        );
+                        uploadStream.end(file.buffer);
+                    });
+
+                    uploadedImages.push(uploadRes.secure_url);
+                } catch (uploadError) {
+                    console.error('Image upload error:', uploadError);
+                }
+            }
+
+            if (uploadedImages.length > 0) {
+                service.images = [...service.images, ...uploadedImages];
+            }
+        }
+
+        await service.save();
+
+        res.status(200).json({
+            success: true,
+            message: "Service updated successfully",
+            data: service
+        });
+    } catch (error) {
+        console.error('Update service error:', error);
+        res.status(500).json({
+            success: false,
+            message: "An error occurred while updating the service"
+        });
+    }
+};
+
+// Delete service (soft delete)
+const handleDeleteService = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const service = await Service.findById(id);
+        
+        if (!service) {
+            return res.status(404).json({
+                success: false,
+                message: "Service not found"
+            });
+        }
+
+        // Check if user is the provider or admin
+        if (service.provider.toString() !== req.user._id.toString() && req.user.role !== 'admin' && req.user.role !== 'super_admin') {
+            return res.status(403).json({
+                success: false,
+                message: "You are not authorized to delete this service"
+            });
+        }
+
+        // Soft delete - set isActive to false
+        service.isActive = false;
+        await service.save();
+
+        // Log to history
+        await History.create({
+            action: "deleteService",
+            userId: req.user._id,
+            targetUser: service.provider,
+            details: `Service "${service.title}" deleted`
+        });
+
+        res.status(200).json({
+            success: true,
+            message: "Service deleted successfully"
+        });
+    } catch (error) {
+        console.error('Delete service error:', error);
+        res.status(500).json({
+            success: false,
+            message: "An error occurred while deleting the service"
+        });
+    }
+};
+
+// Toggle service active status
+const handleToggleServiceStatus = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { isActive } = req.body;
+        
+        const service = await Service.findById(id);
+        
+        if (!service) {
+            return res.status(404).json({
+                success: false,
+                message: "Service not found"
+            });
+        }
+
+        // Check if user is the provider or admin
+        if (service.provider.toString() !== req.user._id.toString() && req.user.role !== 'admin' && req.user.role !== 'super_admin') {
+            return res.status(403).json({
+                success: false,
+                message: "You are not authorized to update this service"
+            });
+        }
+
+        service.isActive = isActive;
+        service.updatedAt = Date.now();
+        await service.save();
+
+        res.status(200).json({
+            success: true,
+            message: `Service ${isActive ? 'activated' : 'deactivated'} successfully`,
+            data: service
+        });
+    } catch (error) {
+        console.error('Toggle service status error:', error);
+        res.status(500).json({
+            success: false,
+            message: "An error occurred while updating service status"
+        });
+    }
+};
+
+// Get services by provider
+const handleGetProviderServices = async (req, res) => {
+    try {
+        const { providerId } = req.params;
+        const { page = 1, limit = 10, includeInactive = false } = req.query;
+
+        const filter = { provider: providerId };
+        if (!includeInactive) {
+            filter.isActive = true;
+        }
+
+        const services = await Service.find(filter)
+            .skip((parseInt(page) - 1) * parseInt(limit))
+            .limit(parseInt(limit))
+            .sort({ createdAt: -1 });
+
+        const total = await Service.countDocuments(filter);
+
+        res.status(200).json({
+            success: true,
+            data: services,
+            pagination: {
+                total,
+                page: parseInt(page),
+                limit: parseInt(limit),
+                totalPages: Math.ceil(total / parseInt(limit))
+            }
+        });
+    } catch (error) {
+        console.error('Get provider services error:', error);
+        res.status(500).json({
+            success: false,
+            message: "An error occurred while fetching provider services"
+        });
+    }
+};
+
+// Search services
+const handleSearchServices = async (req, res) => {
+    try {
+        const { q, category, location, page = 1, limit = 20 } = req.query;
+        
+        if (!q) {
+            return res.status(400).json({
+                success: false,
+                message: "Search query is required"
+            });
+        }
+
+        const filter = {
+            isActive: true,
+            $or: [
+                { title: { $regex: q, $options: 'i' } },
+                { description: { $regex: q, $options: 'i' } },
+                { category: { $regex: q, $options: 'i' } }
+            ]
+        };
+
+        if (category) filter.category = category;
+        if (location) filter.location = { $regex: location, $options: 'i' };
+
+        const services = await Service.find(filter)
+            .skip((parseInt(page) - 1) * parseInt(limit))
+            .limit(parseInt(limit))
+            .populate('provider', 'fullName avatar rating kycVerified')
+            .sort({ createdAt: -1 });
+
+        const total = await Service.countDocuments(filter);
+
+        res.status(200).json({
+            success: true,
+            data: services,
+            pagination: {
+                total,
+                page: parseInt(page),
+                limit: parseInt(limit),
+                totalPages: Math.ceil(total / parseInt(limit))
+            }
+        });
+    } catch (error) {
+        console.error('Search services error:', error);
+        res.status(500).json({
+            success: false,
+            message: "An error occurred while searching services"
+        });
+    }
+};
+
 
 
 // apply for a service
@@ -211,38 +516,6 @@ const handleApplyForService = async (req, res) => {
     }
 };
 
-
-// delete service
-const handleDeleteService = async (req, res) => {
-    try {
-        const { id } = req.params;
-        const service = await Service.findById(id);
-        if (!service) {
-            return res.status(404).json({
-                success: false,
-                message: "Service not found"
-            });
-        }
-        if (service.provider.toString() !== req.user._id.toString()) {
-            return res.status(403).json({
-                success: false,
-                message: "You are not authorized to delete this service"
-            });
-        }
-
-        await service.remove();
-        res.status(200).json({
-            success: true,
-            message: "Service deleted successfully"
-        });
-    } catch (error) {
-        console.error('Delete service error:', error);
-        res.status(500).json({
-            success: false,
-            message: "An error occurred while deleting the service"
-        });
-    }
-};
 
 
 
@@ -477,5 +750,9 @@ module.exports = {
     handleAddToFavourites,
     handleRemoveFromFavourites,
     handleGetFavourites,
-    handleGetProviders
+    handleGetProviders,
+    handleSearchServices,
+    handleGetProviderServices,
+    handleToggleServiceStatus,
+    handleUpdateService
 };
