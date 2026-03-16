@@ -8,9 +8,9 @@ dotenv.config();
 // --- Configuration ---
 const SENDGRID_API_KEY = process.env.SENDGRID_API_KEY;
 const SENDGRID_FROM_EMAIL = process.env.SENDGRID_FROM_EMAIL;
-const APP_NAME = 'SackAgent';
+const APP_NAME = 'Sabilly';
 const BASE_URL = process.env.CLIENT_URL || 'http://localhost:8000'; 
-const ADMIN_EMAIL = 'sackagentng@gmail.com';
+const ADMIN_EMAIL = 'Sabillyng@gmail.com';
 
 if (!SENDGRID_API_KEY || !SENDGRID_FROM_EMAIL) {
     console.error("❌ FATAL: SENDGRID_API_KEY or SENDGRID_FROM_EMAIL is missing in environment variables.");
