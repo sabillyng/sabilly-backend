@@ -43,7 +43,7 @@ router.patch('/:id/toggle', protect, handleToggleServiceStatus);
 router.get('/top-rated-providers', handleGetTopRatedProviders)
 
 
-router.get('/get-service/:id', protect, handleGetServiceById);
+router.get('/get-service/:id', handleGetServiceById);
 router.post('/apply/:id', protect, handleApplyForService);
 router.post('/complete/:id', protect, handleCompleteService);
 router.delete('/delete/:id', protect, handleDeleteService);
